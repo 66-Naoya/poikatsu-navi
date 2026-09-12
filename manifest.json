@@ -1,0 +1,13 @@
+{
+  "name": "ポイ活ナビ",
+  "short_name": "ポイ活ナビ",
+  "description": "現在地や選んだカテゴリから、一番お得なカード・決済アプリを教えてくれる個人用ツール",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#F2F3EC",
+  "theme_color": "#AD7D22",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}
