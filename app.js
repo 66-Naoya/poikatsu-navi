@@ -2,8 +2,8 @@
   "use strict";
 
   var STORE_KEY = "poikatsu_navi_v1";
-  var KIND_LABELS = { credit:"クレジット", qr:"QRコード決済", emoney:"電子マネー", point:"ポイントカード" };
-  var KIND_ORDER = ["credit","qr","emoney","point"];
+  var KIND_LABELS = { credit:"クレジット", qr:"QRコード決済", emoney:"電子マネー", point:"ポイントカード", debit:"デビット" };
+  var KIND_ORDER = ["credit","qr","emoney","point","debit"];
 
   var SEED_CATEGORIES = [
     {id:"cat_conveni", name:"コンビニ", icon:"🏪", order:0},
@@ -50,6 +50,8 @@
   var geoDebug = "";
 
   var deferredInstallPrompt = null;
+  var importOpen = false;
+  var importResult = null;
 
   function uid(prefix){
     return prefix + "_" + Date.now().toString(36) + Math.random().toString(36).slice(2,8);
@@ -324,10 +326,26 @@
     );
   }
 
+  function importPanelHtml(){
+    var toggle = '<button class="btn small" data-action="toggle-import" style="margin-bottom:10px">'+(importOpen?"✕ 閉じる":"📥 まとめて登録(JSON)")+'</button>';
+    if (!importOpen) return toggle;
+    var resultHtml = importResult ? '<div class="import-result '+(importResult.ok?"ok":"err")+'">'+esc(importResult.text)+'</div>' : '';
+    return (
+      toggle +
+      '<div class="list-panel import-panel"><div class="item-body" style="padding-top:14px">' +
+        '<div class="field"><label>カード配列のJSONを貼り付け(name / kind / note / rates{カテゴリ名:%} )</label>' +
+        '<textarea id="import-json" rows="6" placeholder=\'[{"name":"楽天ペイ","kind":"qr","note":"","rates":{"コンビニ":1.5}}]\'></textarea></div>' +
+        '<div class="row-actions"><button class="btn primary small" data-action="import-cards">読み込む(同名カードは上書き)</button></div>' +
+        resultHtml +
+      '</div></div>'
+    );
+  }
+
   function cardsSettingsHtml(){
     var note = '<div class="sample-note">💡 還元率はサンプル値です。実際のカード規約に合わせて編集してください。</div>';
+    var importUi = importPanelHtml();
     if (cards.length === 0){
-      return note + '<div class="list-panel"><div class="empty-note">カードがありません</div><div class="add-bar"><button class="btn primary block" data-action="add-card">＋ カードを追加</button></div></div>';
+      return note + importUi + '<div class="list-panel"><div class="empty-note">カードがありません</div><div class="add-bar"><button class="btn primary block" data-action="add-card">＋ カードを追加</button></div></div>';
     }
     var sorted = cards.slice().sort(byOrder);
     var rows = sorted.map(function(c, idx){
@@ -365,7 +383,7 @@
         '</div>'
       );
     }).join("");
-    return note + '<div class="list-panel">' + rows + '<div class="add-bar"><button class="btn primary block" data-action="add-card">＋ カードを追加</button></div></div>';
+    return note + importUi + '<div class="list-panel">' + rows + '<div class="add-bar"><button class="btn primary block" data-action="add-card">＋ カードを追加</button></div></div>';
   }
 
   function placesSettingsHtml(){
@@ -438,6 +456,44 @@
   }
   function findIn(list, id){ return list.filter(function(x){return x.id===id;})[0]; }
 
+  function importCardsFromJson(text){
+    var arr;
+    try{ arr = JSON.parse(text); }
+    catch(e){ return { ok:false, text:"JSONの形式が正しくありません: "+(e && e.message ? e.message : e) }; }
+    if (!Array.isArray(arr)) return { ok:false, text:"配列(角カッコ[...])の形式で貼り付けてください" };
+
+    var nameToId = {};
+    categories.forEach(function(c){ nameToId[c.name] = c.id; });
+
+    var added = 0, updated = 0, skippedRates = [];
+    arr.forEach(function(item){
+      if (!item || typeof item.name !== "string" || !item.name) return;
+      var rates = {};
+      var base = typeof item.base === "number" ? item.base : 0;
+      categories.forEach(function(c){ rates[c.id] = base; });
+      Object.keys(item.rates || {}).forEach(function(catName){
+        var cid = nameToId[catName];
+        if (cid) rates[cid] = item.rates[catName];
+        else skippedRates.push(catName);
+      });
+
+      var existing = cards.filter(function(c){ return c.name === item.name; })[0];
+      if (existing){
+        existing.kind = item.kind || existing.kind;
+        existing.note = typeof item.note === "string" ? item.note : existing.note;
+        existing.rates = rates;
+        updated++;
+      } else {
+        cards.push({ id: uid("card"), name: item.name, kind: item.kind || "credit", note: item.note || "", order: nextOrder(cards), rates: rates });
+        added++;
+      }
+    });
+
+    var msg = "追加 " + added + "件・更新 " + updated + "件しました";
+    if (skippedRates.length) msg += "(未知のカテゴリ名は無視: " + skippedRates.filter(function(v,i,a){return a.indexOf(v)===i;}).join("、") + ")";
+    return { ok:true, text: msg };
+  }
+
   app.addEventListener("click", function(e){
     var el = e.target.closest("[data-action]");
     if (!el) return;
@@ -461,6 +517,15 @@
 
     if (action === "toggle-card"){ var k="card:"+id; expandedId = expandedId===k? null : k; render(); return; }
     if (action === "toggle-place"){ var k2="place:"+id; expandedId = expandedId===k2? null : k2; render(); return; }
+    if (action === "toggle-import"){ importOpen = !importOpen; importResult = null; render(); return; }
+    if (action === "import-cards"){
+      var ta = document.getElementById("import-json");
+      var text = ta ? ta.value : "";
+      var res = importCardsFromJson(text);
+      importResult = res;
+      saveStore(); render();
+      return;
+    }
 
     if (action === "add-card"){
       var ratesObj = {}; categories.forEach(function(c){ ratesObj[c.id]=0; });
