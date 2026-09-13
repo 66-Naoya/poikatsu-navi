@@ -122,6 +122,14 @@
     if (m < 1000) return Math.round(m) + "m";
     return (m/1000).toFixed(1) + "km";
   }
+  function mapsLink(lat, lng){
+    return "https://www.google.com/maps/search/?api=1&query=" + lat + "," + lng;
+  }
+  function parseLatLngPaste(text){
+    var m = String(text || "").match(/(-?\d+(?:\.\d+)?)[,\s]+(-?\d+(?:\.\d+)?)/);
+    if (!m) return null;
+    return { lat: parseFloat(m[1]), lng: parseFloat(m[2]) };
+  }
   function esc(s){
     return String(s==null?"":s).replace(/[&<>"']/g, function(c){
       return {"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c];
@@ -497,7 +505,12 @@
         '<div class="field"><label>カテゴリ</label><select id="draft-place-cat">' +
           categories.slice().sort(byOrder).map(function(c){ return '<option value="'+c.id+'"'+(placeDraft.catId===c.id?" selected":"")+'>'+esc(c.icon)+' '+esc(c.name)+'</option>'; }).join("") +
         '</select></div>' +
-        '<div class="status-meta num">現在地 '+placeDraft.lat.toFixed(5)+', '+placeDraft.lng.toFixed(5)+'</div>' +
+        '<div class="latlng-row">' +
+          '<div class="field"><label>緯度</label><input type="number" step="0.000001" class="num" id="draft-place-lat" value="'+placeDraft.lat+'"></div>' +
+          '<div class="field"><label>経度</label><input type="number" step="0.000001" class="num" id="draft-place-lng" value="'+placeDraft.lng+'"></div>' +
+        '</div>' +
+        '<a class="btn small" href="'+mapsLink(placeDraft.lat, placeDraft.lng)+'" target="_blank" rel="noopener" style="display:inline-block;text-decoration:none;text-align:center">🗺️ Googleマップで確認</a>' +
+        '<div class="field"><label>ずれていたら: Googleマップでピンを長押し→出てきた座標をコピーしてここに貼り付け</label><input type="text" id="draft-place-coord-paste" placeholder="例: 35.778333, 139.471861"></div>' +
         '<div class="row-actions"><button class="btn small" data-action="cancel-add-place">キャンセル</button><button class="btn primary small" data-action="confirm-add-place">✅ この場所を登録</button></div>';
     }
     return '<div class="list-panel import-panel"><div class="item-body" style="padding-top:14px">'+body+'</div></div>';
@@ -523,6 +536,8 @@
               '<div class="field"><label>緯度</label><input type="number" step="0.000001" class="num" value="'+(p.lat!=null?p.lat:"")+'" data-collection="places" data-id="'+p.id+'" data-field="lat"></div>' +
               '<div class="field"><label>経度</label><input type="number" step="0.000001" class="num" value="'+(p.lng!=null?p.lng:"")+'" data-collection="places" data-id="'+p.id+'" data-field="lng"></div>' +
             '</div>' +
+            (p.lat!=null && p.lng!=null ? '<a class="btn small" href="'+mapsLink(p.lat,p.lng)+'" target="_blank" rel="noopener" style="display:inline-block;text-decoration:none;text-align:center">🗺️ Googleマップで確認</a>' : '') +
+            '<div class="field"><label>ずれていたら: Googleマップの座標をコピーしてここに貼り付け</label><input type="text" placeholder="例: 35.778333, 139.471861" data-coord-paste-for="'+p.id+'"></div>' +
             '<button class="btn small" data-action="use-current-location" data-id="'+p.id+'"'+(position?"":" disabled")+'>📍 現在地を使用'+(position?"":"（位置情報未取得）")+'</button>' +
             '<div class="field"><label>判定半径（m）</label><input type="number" step="10" min="20" value="'+(p.radius!=null?p.radius:300)+'" data-collection="places" data-id="'+p.id+'" data-field="radius"></div>' +
             '<div class="field"><label>メモ</label><input type="text" value="'+esc(p.note||"")+'" data-collection="places" data-id="'+p.id+'" data-field="note"></div>' +
@@ -730,11 +745,16 @@
       if (!placeDraft || placeDraft.status !== "ready") return;
       var nameEl = document.getElementById("draft-place-name");
       var catEl = document.getElementById("draft-place-cat");
+      var latEl = document.getElementById("draft-place-lat");
+      var lngEl = document.getElementById("draft-place-lng");
+      var finalLat = latEl ? parseFloat(latEl.value) : placeDraft.lat;
+      var finalLng = lngEl ? parseFloat(lngEl.value) : placeDraft.lng;
       var place = {
         id: uid("place"),
         name: (nameEl && nameEl.value.trim()) || "新しい場所",
         catId: catEl ? catEl.value : placeDraft.catId,
-        lat: placeDraft.lat, lng: placeDraft.lng,
+        lat: isNaN(finalLat) ? placeDraft.lat : finalLat,
+        lng: isNaN(finalLng) ? placeDraft.lng : finalLng,
         radius: placeDraft.radius, note: placeDraft.address || ""
       };
       places.push(place);
@@ -759,6 +779,30 @@
   });
 
   app.addEventListener("change", function(e){
+    if (e.target && e.target.id === "draft-place-coord-paste"){
+      var parsed = parseLatLngPaste(e.target.value);
+      if (parsed){
+        var latInput = document.getElementById("draft-place-lat");
+        var lngInput = document.getElementById("draft-place-lng");
+        if (latInput) latInput.value = parsed.lat;
+        if (lngInput) lngInput.value = parsed.lng;
+      }
+      e.target.value = "";
+      return;
+    }
+    var pasteForPlace = e.target && e.target.getAttribute && e.target.getAttribute("data-coord-paste-for");
+    if (pasteForPlace){
+      var parsedExisting = parseLatLngPaste(e.target.value);
+      var place = findIn(places, pasteForPlace);
+      if (parsedExisting && place){
+        place.lat = parsedExisting.lat;
+        place.lng = parsedExisting.lng;
+        saveStore();
+      }
+      render();
+      return;
+    }
+
     var el = e.target.closest("[data-collection]");
     if (!el) return;
     var collection = el.getAttribute("data-collection");
