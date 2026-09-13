@@ -59,7 +59,8 @@
   var importCatOpen = false;
   var importCatResult = null;
   var pendingDelete = null; // { kind: "card"|"place"|"category", id }
-  var placeDraft = null; // { status, lat, lng, name, address, catId, radius, geocodeError, error }
+  var placeDraft = null; // { status, lat, lng, name, address, catId, radius, geocodeError, error, pasteStatus }
+  var placeLookupStatus = {}; // placeId -> "loading" | "error"
 
   function deleteConfirmHtml(kind, id, label){
     if (pendingDelete && pendingDelete.kind === kind && pendingDelete.id === id){
@@ -123,12 +124,33 @@
     return (m/1000).toFixed(1) + "km";
   }
   function mapsLink(lat, lng){
-    return "https://www.google.com/maps/search/?api=1&query=" + lat + "," + lng;
+    // "q=" (not "search/?api=1&query=") is the classic Google Maps deep-link
+    // format that reliably drops a pin at the exact coordinate instead of
+    // sometimes falling back to the device's current location.
+    return "https://www.google.com/maps?q=" + lat + "," + lng;
   }
   function parseLatLngPaste(text){
-    var m = String(text || "").match(/(-?\d+(?:\.\d+)?)[,\s]+(-?\d+(?:\.\d+)?)/);
+    var m = String(text || "").trim().match(/^(-?\d{1,3}(?:\.\d+)?)\s*[,\s]\s*(-?\d{1,3}(?:\.\d+)?)$/);
     if (!m) return null;
     return { lat: parseFloat(m[1]), lng: parseFloat(m[2]) };
+  }
+  function forwardGeocode(query, onResult){
+    var url = "https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&addressdetails=1&q=" + encodeURIComponent(query);
+    fetch(url, { headers: { "Accept": "application/json" } })
+      .then(function(r){ return r.json(); })
+      .then(function(results){
+        if (results && results[0]){
+          onResult({
+            lat: parseFloat(results[0].lat),
+            lng: parseFloat(results[0].lon),
+            address: results[0].display_name || query,
+            name: shortAddressLabel(results[0])
+          });
+        } else {
+          onResult(null);
+        }
+      })
+      .catch(function(){ onResult(null); });
   }
   function esc(s){
     return String(s==null?"":s).replace(/[&<>"']/g, function(c){
@@ -499,18 +521,23 @@
         '<div class="import-result err">'+esc(placeDraft.error)+'</div>' +
         '<div class="row-actions"><span></span><button class="btn small" data-action="cancel-add-place">閉じる</button></div>';
     } else {
+      var pasteMsg = "";
+      if (placeDraft.pasteStatus === "loading") pasteMsg = '<div class="import-result">🔎 検索しています…</div>';
+      else if (placeDraft.pasteStatus === "error") pasteMsg = '<div class="import-result err">見つかりませんでした。番地・号まで含む住所はOpenStreetMapでは検索できないことがあります。「〇〇丁目」までの住所、施設名(例: 東京タワー)、または座標を試してください。</div>';
       body =
         (placeDraft.geocodeError ? '<div class="import-result err">住所の自動取得に失敗しました。名称を手入力してください。</div>' : '') +
-        '<div class="field"><label>名称(GPSから自動取得した住所・編集可)</label><input type="text" id="draft-place-name" value="'+esc(placeDraft.name)+'"></div>' +
+        '<div class="field"><label>名称(表示用・編集可)</label><input type="text" id="draft-place-name" value="'+esc(placeDraft.name)+'"></div>' +
         '<div class="field"><label>カテゴリ</label><select id="draft-place-cat">' +
           categories.slice().sort(byOrder).map(function(c){ return '<option value="'+c.id+'"'+(placeDraft.catId===c.id?" selected":"")+'>'+esc(c.icon)+' '+esc(c.name)+'</option>'; }).join("") +
         '</select></div>' +
+        '<div class="field"><label>住所(OpenStreetMapから自動取得・編集可)</label><input type="text" id="draft-place-address" value="'+esc(placeDraft.address||"")+'"></div>' +
         '<div class="latlng-row">' +
           '<div class="field"><label>緯度</label><input type="number" step="0.000001" class="num" id="draft-place-lat" value="'+placeDraft.lat+'"></div>' +
           '<div class="field"><label>経度</label><input type="number" step="0.000001" class="num" id="draft-place-lng" value="'+placeDraft.lng+'"></div>' +
         '</div>' +
         '<a class="btn small" href="'+mapsLink(placeDraft.lat, placeDraft.lng)+'" target="_blank" rel="noopener" style="display:inline-block;text-decoration:none;text-align:center">🗺️ Googleマップで確認</a>' +
-        '<div class="field"><label>ずれていたら: Googleマップでピンを長押し→出てきた座標をコピーしてここに貼り付け</label><input type="text" id="draft-place-coord-paste" placeholder="例: 35.778333, 139.471861"></div>' +
+        '<div class="field"><label>ずれていたら: Googleマップの座標(35.7,139.5)または住所をコピーしてここに貼り付け</label><input type="text" id="draft-place-coord-paste" placeholder="座標 or 住所を貼り付け"></div>' +
+        pasteMsg +
         '<div class="row-actions"><button class="btn small" data-action="cancel-add-place">キャンセル</button><button class="btn primary small" data-action="confirm-add-place">✅ この場所を登録</button></div>';
     }
     return '<div class="list-panel import-panel"><div class="item-body" style="padding-top:14px">'+body+'</div></div>';
@@ -532,12 +559,15 @@
             '<div class="field"><label>カテゴリ</label><select data-collection="places" data-id="'+p.id+'" data-field="catId">' +
               categories.slice().sort(byOrder).map(function(c){ return '<option value="'+c.id+'"'+(p.catId===c.id?" selected":"")+'>'+esc(c.icon)+' '+esc(c.name)+'</option>'; }).join("") +
             '</select></div>' +
+            '<div class="field"><label>住所</label><input type="text" value="'+esc(p.address||"")+'" data-collection="places" data-id="'+p.id+'" data-field="address"></div>' +
             '<div class="latlng-row">' +
               '<div class="field"><label>緯度</label><input type="number" step="0.000001" class="num" value="'+(p.lat!=null?p.lat:"")+'" data-collection="places" data-id="'+p.id+'" data-field="lat"></div>' +
               '<div class="field"><label>経度</label><input type="number" step="0.000001" class="num" value="'+(p.lng!=null?p.lng:"")+'" data-collection="places" data-id="'+p.id+'" data-field="lng"></div>' +
             '</div>' +
             (p.lat!=null && p.lng!=null ? '<a class="btn small" href="'+mapsLink(p.lat,p.lng)+'" target="_blank" rel="noopener" style="display:inline-block;text-decoration:none;text-align:center">🗺️ Googleマップで確認</a>' : '') +
-            '<div class="field"><label>ずれていたら: Googleマップの座標をコピーしてここに貼り付け</label><input type="text" placeholder="例: 35.778333, 139.471861" data-coord-paste-for="'+p.id+'"></div>' +
+            '<div class="field"><label>ずれていたら: Googleマップの座標(35.7,139.5)または住所をコピーしてここに貼り付け</label><input type="text" placeholder="座標 or 住所を貼り付け" data-coord-paste-for="'+p.id+'"></div>' +
+            (placeLookupStatus[p.id] === "loading" ? '<div class="import-result">🔎 検索しています…</div>' : '') +
+            (placeLookupStatus[p.id] === "error" ? '<div class="import-result err">見つかりませんでした。番地・号まで含む住所はOpenStreetMapでは検索できないことがあります。「〇〇丁目」までの住所、施設名、または座標を試してください。</div>' : '') +
             '<button class="btn small" data-action="use-current-location" data-id="'+p.id+'"'+(position?"":" disabled")+'>📍 現在地を使用'+(position?"":"（位置情報未取得）")+'</button>' +
             '<div class="field"><label>判定半径（m）</label><input type="number" step="10" min="20" value="'+(p.radius!=null?p.radius:300)+'" data-collection="places" data-id="'+p.id+'" data-field="radius"></div>' +
             '<div class="field"><label>メモ</label><input type="text" value="'+esc(p.note||"")+'" data-collection="places" data-id="'+p.id+'" data-field="note"></div>' +
@@ -745,6 +775,7 @@
       if (!placeDraft || placeDraft.status !== "ready") return;
       var nameEl = document.getElementById("draft-place-name");
       var catEl = document.getElementById("draft-place-cat");
+      var addressEl = document.getElementById("draft-place-address");
       var latEl = document.getElementById("draft-place-lat");
       var lngEl = document.getElementById("draft-place-lng");
       var finalLat = latEl ? parseFloat(latEl.value) : placeDraft.lat;
@@ -755,7 +786,9 @@
         catId: catEl ? catEl.value : placeDraft.catId,
         lat: isNaN(finalLat) ? placeDraft.lat : finalLat,
         lng: isNaN(finalLng) ? placeDraft.lng : finalLng,
-        radius: placeDraft.radius, note: placeDraft.address || ""
+        radius: placeDraft.radius,
+        address: (addressEl && addressEl.value) || placeDraft.address || "",
+        note: ""
       };
       places.push(place);
       placeDraft = null;
@@ -780,26 +813,59 @@
 
   app.addEventListener("change", function(e){
     if (e.target && e.target.id === "draft-place-coord-paste"){
-      var parsed = parseLatLngPaste(e.target.value);
+      var raw = e.target.value;
+      e.target.value = "";
+      if (!raw.trim() || !placeDraft) return;
+      var parsed = parseLatLngPaste(raw);
       if (parsed){
         var latInput = document.getElementById("draft-place-lat");
         var lngInput = document.getElementById("draft-place-lng");
         if (latInput) latInput.value = parsed.lat;
         if (lngInput) lngInput.value = parsed.lng;
+        placeDraft.lat = parsed.lat; placeDraft.lng = parsed.lng;
+        placeDraft.pasteStatus = null;
+        return;
       }
-      e.target.value = "";
+      placeDraft.pasteStatus = "loading"; render();
+      forwardGeocode(raw, function(result){
+        if (!placeDraft) return;
+        if (result){
+          placeDraft.lat = result.lat; placeDraft.lng = result.lng;
+          placeDraft.address = result.address;
+          placeDraft.name = result.name || placeDraft.name;
+          placeDraft.pasteStatus = null;
+        } else {
+          placeDraft.pasteStatus = "error";
+        }
+        render();
+      });
       return;
     }
     var pasteForPlace = e.target && e.target.getAttribute && e.target.getAttribute("data-coord-paste-for");
     if (pasteForPlace){
-      var parsedExisting = parseLatLngPaste(e.target.value);
+      var raw2 = e.target.value;
+      e.target.value = "";
       var place = findIn(places, pasteForPlace);
-      if (parsedExisting && place){
+      if (!raw2.trim() || !place) return;
+      var parsedExisting = parseLatLngPaste(raw2);
+      if (parsedExisting){
         place.lat = parsedExisting.lat;
         place.lng = parsedExisting.lng;
-        saveStore();
+        delete placeLookupStatus[pasteForPlace];
+        saveStore(); render();
+        return;
       }
-      render();
+      placeLookupStatus[pasteForPlace] = "loading"; render();
+      forwardGeocode(raw2, function(result){
+        if (result){
+          place.lat = result.lat; place.lng = result.lng; place.address = result.address;
+          delete placeLookupStatus[pasteForPlace];
+          saveStore();
+        } else {
+          placeLookupStatus[pasteForPlace] = "error";
+        }
+        render();
+      });
       return;
     }
 
