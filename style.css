@@ -181,6 +181,9 @@ h2.section-title:first-of-type{margin-top:0;}
   font-family:"JetBrains Mono",monospace;font-size:0.76rem;line-height:1.5;padding:8px 10px;border-radius:8px;
   border:1px solid var(--border);background:var(--bg);color:var(--ink);width:100%;resize:vertical;
 }
+.field textarea.prose{
+  font-family:"Noto Sans JP",sans-serif;font-size:0.86rem;
+}
 .import-panel{margin-bottom:14px;}
 .import-result{font-size:0.76rem;margin-top:6px;}
 .import-result.ok{color:var(--good-ink);}

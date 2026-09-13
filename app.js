@@ -486,7 +486,7 @@
             '<div class="field"><label>種類</label><select data-collection="cards" data-id="'+c.id+'" data-field="kind">' +
               KIND_ORDER.map(function(k){ return '<option value="'+k+'"'+(c.kind===k?" selected":"")+'>'+KIND_LABELS[k]+'</option>'; }).join("") +
             '</select></div>' +
-            '<div class="field"><label>メモ</label><input type="text" value="'+esc(c.note||"")+'" placeholder="例: 特約店のみ／エントリー必要 など" data-collection="cards" data-id="'+c.id+'" data-field="note"></div>' +
+            '<div class="field"><label>メモ</label><textarea class="prose" rows="3" placeholder="例: 特約店のみ／エントリー必要 など" data-collection="cards" data-id="'+c.id+'" data-field="note">'+esc(c.note||"")+'</textarea></div>' +
             '<div class="field"><label>カテゴリ別 還元率（%）</label><div class="rate-grid">'+rateRows+'</div></div>' +
             deleteConfirmHtml("card", c.id, "このカードを削除") +
           '</div>';
