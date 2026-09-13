@@ -10,24 +10,28 @@
     {id:"cat_super", name:"スーパー", icon:"🛒", order:1},
     {id:"cat_drug", name:"ドラッグストア", icon:"💊", order:2},
     {id:"cat_restaurant", name:"飲食店", icon:"🍽️", order:3},
-    {id:"cat_cafe", name:"カフェ", icon:"☕", order:4},
-    {id:"cat_gas", name:"ガソリンスタンド", icon:"⛽", order:5},
-    {id:"cat_online", name:"ネットショッピング", icon:"📦", order:6},
-    {id:"cat_electronics", name:"家電量販店", icon:"🔌", order:7}
+    {id:"cat_fastfood", name:"ファストフード", icon:"🍔", order:4},
+    {id:"cat_familyrest", name:"ファミレス", icon:"🍛", order:5},
+    {id:"cat_sushi", name:"回転寿司", icon:"🍣", order:6},
+    {id:"cat_cafe", name:"カフェ", icon:"☕", order:7},
+    {id:"cat_gas", name:"ガソリンスタンド", icon:"⛽", order:8},
+    {id:"cat_online", name:"ネットショッピング", icon:"📦", order:9},
+    {id:"cat_electronics", name:"家電量販店", icon:"🔌", order:10},
+    {id:"cat_department", name:"百貨店", icon:"🏬", order:11}
   ];
   var SEED_CARDS = [
     {id:"card_rakuten", name:"楽天カード", kind:"credit", order:0,
       note:"楽天市場での利用は上乗せ加算がある例",
-      rates:{cat_conveni:1.0, cat_super:1.0, cat_drug:1.0, cat_restaurant:1.0, cat_cafe:1.0, cat_gas:1.0, cat_online:3.0, cat_electronics:1.0}},
+      rates:{cat_conveni:1.0, cat_super:1.0, cat_drug:1.0, cat_restaurant:1.0, cat_fastfood:1.0, cat_familyrest:1.0, cat_sushi:1.0, cat_cafe:1.0, cat_gas:1.0, cat_online:3.0, cat_electronics:1.0, cat_department:1.0}},
     {id:"card_paypay", name:"PayPay", kind:"qr", order:1,
       note:"PayPayステップ達成時の例",
-      rates:{cat_conveni:0.5, cat_super:0.5, cat_drug:1.5, cat_restaurant:0.5, cat_cafe:0.5, cat_gas:0.5, cat_online:1.0, cat_electronics:0.5}},
+      rates:{cat_conveni:0.5, cat_super:0.5, cat_drug:1.5, cat_restaurant:0.5, cat_fastfood:0.5, cat_familyrest:0.5, cat_sushi:0.5, cat_cafe:0.5, cat_gas:0.5, cat_online:1.0, cat_electronics:0.5, cat_department:0.5}},
     {id:"card_dcard", name:"dカード", kind:"credit", order:2,
       note:"特約店(コンビニ等)での利用例",
-      rates:{cat_conveni:3.0, cat_super:1.0, cat_drug:1.0, cat_restaurant:1.0, cat_cafe:1.0, cat_gas:1.0, cat_online:1.0, cat_electronics:1.0}},
+      rates:{cat_conveni:3.0, cat_super:1.0, cat_drug:1.0, cat_restaurant:1.0, cat_fastfood:1.0, cat_familyrest:1.0, cat_sushi:1.0, cat_cafe:1.0, cat_gas:1.0, cat_online:1.0, cat_electronics:1.0, cat_department:1.0}},
     {id:"card_waon", name:"WAON", kind:"emoney", order:3,
       note:"イオン系列店での利用例",
-      rates:{cat_conveni:0.5, cat_super:1.5, cat_drug:0.5, cat_restaurant:0.5, cat_cafe:0.5, cat_gas:0.5, cat_online:0.5, cat_electronics:0.5}}
+      rates:{cat_conveni:0.5, cat_super:1.5, cat_drug:0.5, cat_restaurant:0.5, cat_fastfood:0.5, cat_familyrest:0.5, cat_sushi:0.5, cat_cafe:0.5, cat_gas:0.5, cat_online:0.5, cat_electronics:0.5, cat_department:0.5}}
   ];
   var SEED_PLACES = [
     {id:"place_sample", name:"（例）自宅近くのコンビニ", catId:"cat_conveni", lat:35.681236, lng:139.767125, radius:200,
@@ -52,7 +56,10 @@
   var deferredInstallPrompt = null;
   var importOpen = false;
   var importResult = null;
+  var importCatOpen = false;
+  var importCatResult = null;
   var pendingDelete = null; // { kind: "card"|"place"|"category", id }
+  var placeDraft = null; // { status, lat, lng, name, address, catId, radius, geocodeError, error }
 
   function deleteConfirmHtml(kind, id, label){
     if (pendingDelete && pendingDelete.kind === kind && pendingDelete.id === id){
@@ -142,6 +149,76 @@
       geoDebug = "exception: " + (e && e.message ? e.message : e);
       render();
     }
+  }
+
+  function shortAddressLabel(data){
+    var a = (data && data.address) || {};
+    var parts = [
+      a.shop, a.amenity, a.building, a.office,
+      a.road, a.neighbourhood, a.suburb, a.city_district, a.town, a.city
+    ].filter(Boolean);
+    var label = parts.slice(0, 3).join(" ");
+    return label || (data && data.display_name) || "";
+  }
+
+  function reverseGeocode(lat, lng){
+    var url = "https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=" + lat + "&lon=" + lng + "&zoom=18&addressdetails=1";
+    fetch(url, { headers: { "Accept": "application/json" } })
+      .then(function(r){ return r.json(); })
+      .then(function(data){
+        if (!placeDraft) return;
+        placeDraft.address = (data && data.display_name) || "";
+        placeDraft.name = shortAddressLabel(data) || "新しい場所";
+        placeDraft.status = "ready";
+        render();
+      })
+      .catch(function(){
+        if (!placeDraft) return;
+        placeDraft.status = "ready";
+        placeDraft.name = "新しい場所";
+        placeDraft.geocodeError = true;
+        render();
+      });
+  }
+
+  function startAddPlace(){
+    placeDraft = {
+      status: "locating",
+      lat: null, lng: null,
+      name: "", address: "",
+      catId: (categories.slice().sort(byOrder)[0] || {}).id || "",
+      radius: 200,
+      geocodeError: false,
+      error: null
+    };
+    render();
+
+    function onFix(lat, lng, accuracy){
+      position = { lat: lat, lng: lng, accuracy: accuracy };
+      placeDraft.lat = lat; placeDraft.lng = lng;
+      placeDraft.status = "geocoding";
+      render();
+      reverseGeocode(lat, lng);
+    }
+
+    if (position){
+      onFix(position.lat, position.lng, position.accuracy);
+      return;
+    }
+    if (!navigator.geolocation){
+      placeDraft.status = "error";
+      placeDraft.error = "この端末では位置情報を取得できません";
+      render();
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(function(pos){
+      onFix(pos.coords.latitude, pos.coords.longitude, pos.coords.accuracy);
+    }, function(err){
+      if (!placeDraft) return;
+      placeDraft.status = "error";
+      placeDraft.error = "位置情報を取得できませんでした(code=" + err.code + " " + (err.message || "") + ")";
+      render();
+    }, { enableHighAccuracy:true, timeout:8000, maximumAge:60000 });
   }
 
   function placeDistances(){
@@ -402,10 +479,35 @@
     return note + importUi + '<div class="list-panel">' + rows + '<div class="add-bar"><button class="btn primary block" data-action="add-card">＋ カードを追加</button></div></div>';
   }
 
+  function placeDraftHtml(){
+    if (!placeDraft) return "";
+    var body = "";
+    if (placeDraft.status === "locating"){
+      body = '<div class="empty-note">📍 現在地を取得中…</div>';
+    } else if (placeDraft.status === "geocoding"){
+      body = '<div class="empty-note">🔎 現在地から住所を調べています…</div>';
+    } else if (placeDraft.status === "error"){
+      body =
+        '<div class="import-result err">'+esc(placeDraft.error)+'</div>' +
+        '<div class="row-actions"><span></span><button class="btn small" data-action="cancel-add-place">閉じる</button></div>';
+    } else {
+      body =
+        (placeDraft.geocodeError ? '<div class="import-result err">住所の自動取得に失敗しました。名称を手入力してください。</div>' : '') +
+        '<div class="field"><label>名称(GPSから自動取得した住所・編集可)</label><input type="text" id="draft-place-name" value="'+esc(placeDraft.name)+'"></div>' +
+        '<div class="field"><label>カテゴリ</label><select id="draft-place-cat">' +
+          categories.slice().sort(byOrder).map(function(c){ return '<option value="'+c.id+'"'+(placeDraft.catId===c.id?" selected":"")+'>'+esc(c.icon)+' '+esc(c.name)+'</option>'; }).join("") +
+        '</select></div>' +
+        '<div class="status-meta num">現在地 '+placeDraft.lat.toFixed(5)+', '+placeDraft.lng.toFixed(5)+'</div>' +
+        '<div class="row-actions"><button class="btn small" data-action="cancel-add-place">キャンセル</button><button class="btn primary small" data-action="confirm-add-place">✅ この場所を登録</button></div>';
+    }
+    return '<div class="list-panel import-panel"><div class="item-body" style="padding-top:14px">'+body+'</div></div>';
+  }
+
   function placesSettingsHtml(){
-    var note = '<div class="sample-note">💡 「現在地を使用」でその場にいるときの緯度経度を保存できます。判定半径の目安は150〜300m程度です。</div>';
+    var note = '<div class="sample-note">💡 「＋ 場所を追加」を押すと現在地から住所を自動取得します(OpenStreetMapのデータを利用・多少ずれる場合があります)。既存の場所は「現在地を使用」でも更新できます。</div>';
+    var draftUi = placeDraftHtml();
     if (places.length === 0){
-      return note + '<div class="list-panel"><div class="empty-note">場所がありません</div><div class="add-bar"><button class="btn primary block" data-action="add-place">＋ 場所を追加</button></div></div>';
+      return note + draftUi + '<div class="list-panel"><div class="empty-note">場所がありません</div><div class="add-bar"><button class="btn primary block" data-action="start-add-place">＋ 場所を追加</button></div></div>';
     }
     var rows = places.map(function(p){
       var open = expandedId === ("place:"+p.id);
@@ -442,12 +544,28 @@
         '</div>'
       );
     }).join("");
-    return note + '<div class="list-panel">' + rows + '<div class="add-bar"><button class="btn primary block" data-action="add-place">＋ 場所を追加</button></div></div>';
+    return note + draftUi + '<div class="list-panel">' + rows + '<div class="add-bar"><button class="btn primary block" data-action="start-add-place">＋ 場所を追加</button></div></div>';
+  }
+
+  function categoryImportPanelHtml(){
+    var toggle = '<button class="btn small" data-action="toggle-import-categories" style="margin-bottom:10px">'+(importCatOpen?"✕ 閉じる":"📥 まとめて登録(JSON)")+'</button>';
+    if (!importCatOpen) return toggle;
+    var resultHtml = importCatResult ? '<div class="import-result '+(importCatResult.ok?"ok":"err")+'">'+esc(importCatResult.text)+'</div>' : '';
+    return (
+      toggle +
+      '<div class="list-panel import-panel"><div class="item-body" style="padding-top:14px">' +
+        '<div class="field"><label>カテゴリ配列のJSONを貼り付け([{"name":"...","icon":"..."}])</label>' +
+        '<textarea id="import-category-json" rows="4" placeholder=\'[{"name":"ファストフード","icon":"🍔"}]\'></textarea></div>' +
+        '<div class="row-actions"><button class="btn primary small" data-action="import-categories">読み込む(同名は上書き)</button></div>' +
+        resultHtml +
+      '</div></div>'
+    );
   }
 
   function categoriesSettingsHtml(){
+    var importUi = categoryImportPanelHtml();
     if (categories.length === 0){
-      return '<div class="list-panel"><div class="empty-note">カテゴリがありません</div><div class="add-bar"><button class="btn primary block" data-action="add-category">＋ カテゴリを追加</button></div></div>';
+      return importUi + '<div class="list-panel"><div class="empty-note">カテゴリがありません</div><div class="add-bar"><button class="btn primary block" data-action="add-category">＋ カテゴリを追加</button></div></div>';
     }
     var sorted = categories.slice().sort(byOrder);
     var rows = sorted.map(function(c){
@@ -463,7 +581,7 @@
         '</div>'
       );
     }).join("");
-    return '<div class="list-panel">' + rows + '<div class="add-bar"><button class="btn primary block" data-action="add-category">＋ カテゴリを追加</button></div></div>';
+    return importUi + '<div class="list-panel">' + rows + '<div class="add-bar"><button class="btn primary block" data-action="add-category">＋ カテゴリを追加</button></div></div>';
   }
 
   // ---------- actions ----------
@@ -510,6 +628,30 @@
     return { ok:true, text: msg };
   }
 
+  function importCategoriesFromJson(text){
+    var arr;
+    try{ arr = JSON.parse(text); }
+    catch(e){ return { ok:false, text:"JSONの形式が正しくありません: "+(e && e.message ? e.message : e) }; }
+    if (!Array.isArray(arr)) return { ok:false, text:"配列(角カッコ[...])の形式で貼り付けてください" };
+
+    var added = 0, updated = 0;
+    arr.forEach(function(item){
+      if (!item || typeof item.name !== "string" || !item.name) return;
+      var existing = categories.filter(function(c){ return c.name === item.name; })[0];
+      if (existing){
+        existing.icon = typeof item.icon === "string" ? item.icon : existing.icon;
+        updated++;
+      } else {
+        var cat = { id: uid("cat"), name: item.name, icon: item.icon || "🏷️", order: nextOrder(categories) };
+        categories.push(cat);
+        cards.forEach(function(c){ if (!c.rates) c.rates = {}; if (!(cat.id in c.rates)) c.rates[cat.id] = 0; });
+        added++;
+      }
+    });
+
+    return { ok:true, text: "追加 " + added + "件・更新 " + updated + "件しました" };
+  }
+
   app.addEventListener("click", function(e){
     var el = e.target.closest("[data-action]");
     if (!el) return;
@@ -539,6 +681,15 @@
       var text = ta ? ta.value : "";
       var res = importCardsFromJson(text);
       importResult = res;
+      saveStore(); render();
+      return;
+    }
+    if (action === "toggle-import-categories"){ importCatOpen = !importCatOpen; importCatResult = null; render(); return; }
+    if (action === "import-categories"){
+      var taCat = document.getElementById("import-category-json");
+      var textCat = taCat ? taCat.value : "";
+      var resCat = importCategoriesFromJson(textCat);
+      importCatResult = resCat;
       saveStore(); render();
       return;
     }
@@ -573,16 +724,22 @@
       return;
     }
 
-    if (action === "add-place"){
+    if (action === "start-add-place"){ startAddPlace(); return; }
+    if (action === "cancel-add-place"){ placeDraft = null; render(); return; }
+    if (action === "confirm-add-place"){
+      if (!placeDraft || placeDraft.status !== "ready") return;
+      var nameEl = document.getElementById("draft-place-name");
+      var catEl = document.getElementById("draft-place-cat");
       var place = {
         id: uid("place"),
-        name:"新しい場所",
-        catId: (categories.slice().sort(byOrder)[0]||{}).id || "",
-        lat: position ? position.lat : null,
-        lng: position ? position.lng : null,
-        radius: 300, note:""
+        name: (nameEl && nameEl.value.trim()) || "新しい場所",
+        catId: catEl ? catEl.value : placeDraft.catId,
+        lat: placeDraft.lat, lng: placeDraft.lng,
+        radius: placeDraft.radius, note: placeDraft.address || ""
       };
-      places.push(place); expandedId = "place:"+place.id; saveStore(); render();
+      places.push(place);
+      placeDraft = null;
+      saveStore(); render();
       return;
     }
     if (action === "use-current-location"){
