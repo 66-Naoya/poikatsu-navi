@@ -426,7 +426,7 @@
             if (!catId) return;
             var dist = distMeters(position.lat, position.lng, el.lat, el.lon);
             if (dist > SCAN_RADIUS_M) return;
-            results.push({ name: (el.tags && el.tags.name) || "(名称不明)", catId: catId, distance: dist });
+            results.push({ name: (el.tags && el.tags.name) || "(名称不明)", catId: catId, distance: dist, lat: el.lat, lng: el.lon });
           });
           results.sort(function(a, b){ return a.distance - b.distance; });
           scanState = { status: "done", results: results, error: null, scannedAt: Date.now() };
@@ -508,30 +508,20 @@
 
     if (m){
       return (
-        '<div class="status-panel matched">' +
-          '<div class="status-line"><span class="glyph">📍</span><div>' +
-            '<div class="status-title">'+esc(m.place.name)+' の近くです</div>' +
-            '<div class="status-sub">'+catName(m.place.catId)+'・約'+fmtDist(m.distance)+'先 として自動判定</div>' +
-          '</div></div>' +
-          '<div class="status-meta num">現在地 '+position.lat.toFixed(4)+', '+position.lng.toFixed(4)+'（誤差 ±'+Math.round(position.accuracy)+'m）</div>' +
+        '<div class="status-compact">' +
+          '📍 <strong>'+esc(m.place.name)+'</strong>の近くです(手動登録・'+catName(m.place.catId)+'・約'+fmtDist(m.distance)+')' +
+          '<button class="btn ghost small" data-action="refresh-location">更新</button>' +
           (manualCategoryId && manualCategoryId !== m.place.catId ?
-            '<div class="status-actions"><span class="chip active">'+catName(manualCategoryId)+' を手動選択中</span><button class="btn ghost" data-action="reset-auto">自動判定に戻す</button></div>' : '') +
+            '<button class="btn ghost small" data-action="reset-auto">自動判定に戻す</button>' : '') +
         '</div>'
       );
     }
 
     var nearest = dists[0];
     return (
-      '<div class="status-panel">' +
-        '<div class="status-line"><span class="glyph">🧭</span><div>' +
-          '<div class="status-title">近くに登録済みの場所がありません</div>' +
-          '<div class="status-sub">下からカテゴリを選ぶか、場所を登録してください</div>' +
-        '</div></div>' +
-        '<div class="status-meta num">現在地 '+position.lat.toFixed(4)+', '+position.lng.toFixed(4)+'（誤差 ±'+Math.round(position.accuracy)+'m）</div>' +
-        (nearest ?
-          '<div class="place-suggest"><span>最寄り登録地: <strong>'+esc(nearest.place.name)+'</strong>（'+fmtDist(nearest.distance)+'）</span>' +
-          '<button class="btn small" data-action="select-category" data-id="'+nearest.place.catId+'">この場所として選択</button></div>' : '') +
-        '<div class="status-actions"><button class="btn" data-action="refresh-location">📍 現在地を更新</button></div>' +
+      '<div class="status-compact">' +
+        '📍 現在地取得済み' + (nearest ? '(最寄りの手動登録地: '+esc(nearest.place.name)+' '+fmtDist(nearest.distance)+')' : '(下の「スキャンする」で周辺施設を検索できます)') +
+        '<button class="btn ghost small" data-action="refresh-location">更新</button>' +
       '</div>'
     );
   }
@@ -621,7 +611,13 @@
       var items = byCat[catId].map(function(r){
         return (
           '<div class="scan-item">' +
-            '<div class="scan-item-top"><span class="scan-item-name">'+esc(r.name)+'</span><span class="kind-badge num">'+fmtDist(r.distance)+'</span></div>' +
+            '<div class="scan-item-top">' +
+              '<span class="scan-item-name">'+esc(r.name)+'</span>' +
+              '<span style="display:flex;align-items:center;gap:6px;flex-shrink:0">' +
+                '<a href="'+mapsLink(r.lat, r.lng)+'" target="_blank" rel="noopener" class="scan-item-map" title="Googleマップで確認">🗺️</a>' +
+                '<span class="kind-badge num">'+fmtDist(r.distance)+'</span>' +
+              '</span>' +
+            '</div>' +
             (best && best.rate > 0
               ? '<div class="scan-item-best">💳 '+esc(best.card.name)+' <span class="num">'+best.rate.toFixed(1)+'%</span></div>'
               : '<div class="rank-note">この分類のカードが登録されていません</div>') +

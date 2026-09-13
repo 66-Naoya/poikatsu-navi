@@ -90,6 +90,11 @@ h2.section-title:first-of-type{margin-top:0;}
 .status-sub{font-size:0.82rem;color:var(--ink-muted);margin-top:3px;}
 .status-meta{margin-top:10px;font-size:0.74rem;color:var(--ink-muted);}
 .status-actions{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap;}
+.status-compact{
+  display:flex;align-items:center;flex-wrap:wrap;gap:8px;
+  font-size:0.82rem;color:var(--ink-muted);padding:2px 0 4px;
+}
+.status-compact strong{color:var(--ink);}
 
 .btn{
   font:inherit;border:1px solid var(--border);background:var(--surface);color:var(--ink);
@@ -132,6 +137,7 @@ h2.section-title:first-of-type{margin-top:0;}
 .scan-item{padding:6px 0 6px 4px;border-left:2px solid var(--border);margin-left:2px;padding-left:10px;margin-bottom:4px;}
 .scan-item-top{display:flex;align-items:center;justify-content:space-between;gap:8px;}
 .scan-item-name{font-size:0.86rem;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.scan-item-map{font-size:1rem;text-decoration:none;line-height:1;}
 .scan-item-best{font-size:0.8rem;color:var(--good-ink);font-weight:700;margin-top:2px;}
 
 .rank-list{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:6px 14px;}
