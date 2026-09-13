@@ -111,6 +111,28 @@ h2.section-title:first-of-type{margin-top:0;}
 }
 .chip .g{font-size:0.95rem;}
 .chip.active{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);font-weight:700;}
+.chip-group-label{
+  font-size:0.7rem;font-weight:700;color:var(--ink-muted);letter-spacing:0.03em;
+  margin-top:14px;
+}
+.chip-group-label:first-child{margin-top:10px;}
+
+.chip-details{margin-top:12px;}
+.chip-details summary{
+  cursor:pointer;font-size:0.82rem;font-weight:600;color:var(--accent);padding:4px 0;
+  list-style:none;
+}
+.chip-details summary::-webkit-details-marker{display:none;}
+.chip-details summary::before{content:"▶ ";font-size:0.7em;}
+.chip-details[open] summary::before{content:"▼ ";}
+
+.scan-group{padding:10px 0;border-bottom:1px solid var(--border);}
+.scan-group:last-child{border-bottom:none;}
+.scan-group-title{font-weight:700;font-size:0.82rem;margin-bottom:6px;}
+.scan-item{padding:6px 0 6px 4px;border-left:2px solid var(--border);margin-left:2px;padding-left:10px;margin-bottom:4px;}
+.scan-item-top{display:flex;align-items:center;justify-content:space-between;gap:8px;}
+.scan-item-name{font-size:0.86rem;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.scan-item-best{font-size:0.8rem;color:var(--good-ink);font-weight:700;margin-top:2px;}
 
 .rank-list{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:6px 14px;}
 .rank-row{padding:12px 0;border-bottom:1px solid var(--border);}

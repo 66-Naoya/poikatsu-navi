@@ -5,36 +5,109 @@
   var KIND_LABELS = { credit:"クレジット", qr:"QRコード決済", emoney:"電子マネー", point:"ポイントカード", debit:"デビット" };
   var KIND_ORDER = ["credit","qr","emoney","point","debit"];
 
-  var SEED_CATEGORIES = [
-    {id:"cat_conveni", name:"コンビニ", icon:"🏪", order:0},
-    {id:"cat_super", name:"スーパー", icon:"🛒", order:1},
-    {id:"cat_drug", name:"ドラッグストア", icon:"💊", order:2},
-    {id:"cat_restaurant", name:"飲食店", icon:"🍽️", order:3},
-    {id:"cat_fastfood", name:"ファストフード", icon:"🍔", order:4},
-    {id:"cat_familyrest", name:"ファミレス", icon:"🍛", order:5},
-    {id:"cat_sushi", name:"回転寿司", icon:"🍣", order:6},
-    {id:"cat_cafe", name:"カフェ", icon:"☕", order:7},
-    {id:"cat_gas", name:"ガソリンスタンド", icon:"⛽", order:8},
-    {id:"cat_online", name:"ネットショッピング", icon:"📦", order:9},
-    {id:"cat_electronics", name:"家電量販店", icon:"🔌", order:10},
-    {id:"cat_department", name:"百貨店", icon:"🏬", order:11}
-  ];
+  // Each category can carry an OSM tag ("key=value") used to pull candidate
+  // points of interest from the Overpass API within the scan radius, plus
+  // a brand[] substring list to route a POI to a specific chain instead of
+  // its group's fallback ("その他...") bucket. Categories with neither
+  // (e.g. ネットショッピング) are manual-only and never appear in a scan.
+  var SEED_CATEGORIES = (function(){
+    var defs = [
+      ["コンビニ", "shop=convenience", "🏪", [
+        ["セブン-イレブン", ["セブン-イレブン","7-eleven","seven-eleven"]],
+        ["ローソン", ["ローソン","lawson"]],
+        ["ファミリーマート", ["ファミリーマート","familymart","family mart"]],
+        ["ミニストップ", ["ミニストップ","ministop"]]
+      ]],
+      ["スーパー", "shop=supermarket", "🛒", [
+        ["イオン", ["イオン","aeon"]],
+        ["イトーヨーカドー", ["イトーヨーカドー","ito-yokado","itoyokado"]],
+        ["西友", ["西友","seiyu"]],
+        ["ライフ", ["ライフ","life corporation"]]
+      ]],
+      ["ドラッグストア", "shop=chemist", "💊", [
+        ["マツモトキヨシ", ["マツモトキヨシ","matsumotokiyoshi","matsukiyo"]],
+        ["ウエルシア", ["ウエルシア","welcia"]],
+        ["ツルハドラッグ", ["ツルハ","tsuruha"]],
+        ["サンドラッグ", ["サンドラッグ","sundrug"]]
+      ]],
+      ["ファストフード", "amenity=fast_food", "🍔", [
+        ["マクドナルド", ["マクドナルド","mcdonald"]],
+        ["モスバーガー", ["モスバーガー","mos burger","mosburger"]],
+        ["ケンタッキーフライドチキン", ["ケンタッキー","kfc","kentucky"]],
+        ["吉野家", ["吉野家","yoshinoya"]],
+        ["すき家", ["すき家","sukiya"]]
+      ]],
+      ["ファミレス", "amenity=restaurant", "🍛", [
+        ["サイゼリヤ", ["サイゼリヤ","saizeriya"]],
+        ["ガスト", ["ガスト","gusto"]],
+        ["バーミヤン", ["バーミヤン","bamiyan"]],
+        ["ジョナサン", ["ジョナサン","jonathan"]]
+      ]],
+      ["回転寿司", "amenity=restaurant", "🍣", [
+        ["はま寿司", ["はま寿司","hamazushi","hama-zushi"]],
+        ["かっぱ寿司", ["かっぱ寿司","kappa-zushi","kappazushi"]],
+        ["スシロー", ["スシロー","sushiro"]],
+        ["くら寿司", ["くら寿司","kurazushi","kura sushi"]]
+      ]],
+      ["カフェ", "amenity=cafe", "☕", [
+        ["スターバックス", ["スターバックス","starbucks"]],
+        ["ドトール", ["ドトール","doutor"]],
+        ["タリーズ", ["タリーズ","tully"]],
+        ["エクセルシオール", ["エクセルシオール","excelsior"]]
+      ]],
+      ["ガソリンスタンド", "amenity=fuel", "⛽", [
+        ["ENEOS", ["eneos"]],
+        ["出光", ["出光","idemitsu"]],
+        ["コスモ石油", ["コスモ","cosmo"]]
+      ]],
+      ["家電量販店", "shop=electronics", "🔌", [
+        ["ビックカメラ", ["ビックカメラ","bic camera","biccamera"]],
+        ["ヨドバシカメラ", ["ヨドバシ","yodobashi"]],
+        ["ヤマダ電機", ["ヤマダ","yamada"]],
+        ["ケーズデンキ", ["ケーズデンキ","ケーズ","k's denki"]]
+      ]],
+      ["百貨店", "shop=department_store", "🏬", [
+        ["三越伊勢丹", ["伊勢丹","三越","isetan","mitsukoshi"]],
+        ["高島屋", ["高島屋","takashimaya"]],
+        ["大丸松坂屋", ["大丸","松坂屋","daimaru","matsuzakaya"]]
+      ]]
+    ];
+    var out = [];
+    var order = 0;
+    var slug = function(s){ return s.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, ""); };
+    defs.forEach(function(def){
+      var group = def[0], osmTag = def[1], icon = def[2], chains = def[3];
+      chains.forEach(function(chain){
+        out.push({ id: "cat_" + slug(group) + "_" + slug(chain[0]), name: chain[0], icon: icon, order: order++, group: group, osmTag: osmTag, brand: chain[1] });
+      });
+      out.push({ id: "cat_" + slug(group) + "_other", name: "その他" + group, icon: icon, order: order++, group: group, osmTag: osmTag, fallback: true });
+    });
+    out.push({ id: "cat_restaurant", name: "飲食店", icon: "🍽️", order: order++, group: "飲食店", osmTag: "amenity=restaurant", fallback: true });
+    out.push({ id: "cat_online", name: "ネットショッピング", icon: "📦", order: order++, group: "ネットショッピング" });
+    return out;
+  })();
+
+  var SEED_CARD_GROUP_RATES = {
+    card_rakuten: { "default": 1.0, "ネットショッピング": 3.0 },
+    card_paypay: { "default": 0.5, "ドラッグストア": 1.5, "ネットショッピング": 1.0 },
+    card_dcard: { "default": 1.0, "コンビニ": 3.0 },
+    card_waon: { "default": 0.5, "スーパー": 1.5 }
+  };
   var SEED_CARDS = [
-    {id:"card_rakuten", name:"楽天カード", kind:"credit", order:0,
-      note:"楽天市場での利用は上乗せ加算がある例",
-      rates:{cat_conveni:1.0, cat_super:1.0, cat_drug:1.0, cat_restaurant:1.0, cat_fastfood:1.0, cat_familyrest:1.0, cat_sushi:1.0, cat_cafe:1.0, cat_gas:1.0, cat_online:3.0, cat_electronics:1.0, cat_department:1.0}},
-    {id:"card_paypay", name:"PayPay", kind:"qr", order:1,
-      note:"PayPayステップ達成時の例",
-      rates:{cat_conveni:0.5, cat_super:0.5, cat_drug:1.5, cat_restaurant:0.5, cat_fastfood:0.5, cat_familyrest:0.5, cat_sushi:0.5, cat_cafe:0.5, cat_gas:0.5, cat_online:1.0, cat_electronics:0.5, cat_department:0.5}},
-    {id:"card_dcard", name:"dカード", kind:"credit", order:2,
-      note:"特約店(コンビニ等)での利用例",
-      rates:{cat_conveni:3.0, cat_super:1.0, cat_drug:1.0, cat_restaurant:1.0, cat_fastfood:1.0, cat_familyrest:1.0, cat_sushi:1.0, cat_cafe:1.0, cat_gas:1.0, cat_online:1.0, cat_electronics:1.0, cat_department:1.0}},
-    {id:"card_waon", name:"WAON", kind:"emoney", order:3,
-      note:"イオン系列店での利用例",
-      rates:{cat_conveni:0.5, cat_super:1.5, cat_drug:0.5, cat_restaurant:0.5, cat_fastfood:0.5, cat_familyrest:0.5, cat_sushi:0.5, cat_cafe:0.5, cat_gas:0.5, cat_online:0.5, cat_electronics:0.5, cat_department:0.5}}
-  ];
+    {id:"card_rakuten", name:"楽天カード", kind:"credit", order:0, note:"楽天市場での利用は上乗せ加算がある例"},
+    {id:"card_paypay", name:"PayPay", kind:"qr", order:1, note:"PayPayステップ達成時の例"},
+    {id:"card_dcard", name:"dカード", kind:"credit", order:2, note:"特約店(コンビニ等)での利用例"},
+    {id:"card_waon", name:"WAON", kind:"emoney", order:3, note:"イオン系列店での利用例"}
+  ].map(function(c){
+    var groupRates = SEED_CARD_GROUP_RATES[c.id];
+    var rates = {};
+    SEED_CATEGORIES.forEach(function(cat){
+      rates[cat.id] = (groupRates[cat.group] != null) ? groupRates[cat.group] : groupRates["default"];
+    });
+    return Object.assign({}, c, { rates: rates });
+  });
   var SEED_PLACES = [
-    {id:"place_sample", name:"（例）自宅近くのコンビニ", catId:"cat_conveni", lat:35.681236, lng:139.767125, radius:200,
+    {id:"place_sample", name:"（例）自宅近くのコンビニ", catId:"cat_conveni_other", lat:35.681236, lng:139.767125, radius:200,
       note:"サンプルです。削除して自分の場所に登録し直してください"}
   ];
 
@@ -61,6 +134,13 @@
   var pendingDelete = null; // { kind: "card"|"place"|"category", id }
   var placeDraft = null; // { status, lat, lng, name, address, catId, radius, geocodeError, error, pasteStatus }
   var placeLookupStatus = {}; // placeId -> "loading" | "error"
+
+  var SCAN_RADIUS_M = 500;
+  var OVERPASS_ENDPOINTS = [
+    "https://overpass-api.de/api/interpreter",
+    "https://overpass.kumi.systems/api/interpreter"
+  ];
+  var scanState = { status: "idle", results: [], error: null, scannedAt: null };
 
   function deleteConfirmHtml(kind, id, label){
     if (pendingDelete && pendingDelete.kind === kind && pendingDelete.id === id){
@@ -272,6 +352,91 @@
     return m ? m.place.catId : null;
   }
 
+  var OSM_TAG_ALIASES = { "shop=chemist": ["shop=chemist", "shop=drugstore"] };
+  function osmTagVariants(osmTag){ return OSM_TAG_ALIASES[osmTag] || [osmTag]; }
+
+  function classifyElementTags(tags){
+    var matching = categories.filter(function(c){
+      if (!c.osmTag) return false;
+      return osmTagVariants(c.osmTag).some(function(variant){
+        var kv = variant.split("=");
+        return tags[kv[0]] === kv[1];
+      });
+    });
+    if (matching.length === 0) return null;
+    var text = (((tags.brand || "") + " " + (tags.name || "")).toLowerCase());
+    var brandMatch = matching.filter(function(c){ return c.brand && c.brand.length; })
+      .filter(function(c){ return c.brand.some(function(b){ return text.indexOf(String(b).toLowerCase()) !== -1; }); })[0];
+    if (brandMatch) return brandMatch.id;
+    var fallback = matching.filter(function(c){ return c.fallback; })[0];
+    return fallback ? fallback.id : null;
+  }
+
+  function bestCardFor(catId){
+    if (cards.length === 0) return null;
+    var ranked = cards.map(function(c){
+      return { card: c, rate: (c.rates && typeof c.rates[catId] === "number") ? c.rates[catId] : 0 };
+    }).sort(function(a, b){ return b.rate - a.rate; });
+    return ranked[0];
+  }
+
+  function scanNearby(){
+    if (!position){
+      scanState = { status: "error", results: [], error: "先に現在地を取得してください(ホーム画面上部の更新ボタン)", scannedAt: null };
+      render();
+      return;
+    }
+    scanState = { status: "loading", results: [], error: null, scannedAt: null };
+    render();
+
+    var tagSet = {};
+    categories.forEach(function(c){
+      if (!c.osmTag) return;
+      osmTagVariants(c.osmTag).forEach(function(t){ tagSet[t] = true; });
+    });
+    var tagList = Object.keys(tagSet);
+    if (tagList.length === 0){
+      scanState = { status: "error", results: [], error: "スキャン対象のカテゴリがありません(カテゴリ設定を確認してください)", scannedAt: null };
+      render();
+      return;
+    }
+    var clauses = tagList.map(function(t){
+      var kv = t.split("=");
+      return 'node["' + kv[0] + '"="' + kv[1] + '"](around:' + SCAN_RADIUS_M + ',' + position.lat + ',' + position.lng + ');';
+    }).join("");
+    var query = "[out:json][timeout:25];(" + clauses + ");out body;";
+
+    function tryEndpoint(i){
+      if (i >= OVERPASS_ENDPOINTS.length){
+        scanState = { status: "error", results: [], error: "スキャンに失敗しました(通信エラー)。しばらくしてから再度お試しください。", scannedAt: null };
+        render();
+        return;
+      }
+      fetch(OVERPASS_ENDPOINTS[i], {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: "data=" + encodeURIComponent(query)
+      })
+        .then(function(r){ if (!r.ok) throw new Error("http " + r.status); return r.json(); })
+        .then(function(data){
+          var results = [];
+          (data.elements || []).forEach(function(el){
+            if (el.type !== "node" || el.lat == null || el.lon == null) return;
+            var catId = classifyElementTags(el.tags || {});
+            if (!catId) return;
+            var dist = distMeters(position.lat, position.lng, el.lat, el.lon);
+            if (dist > SCAN_RADIUS_M) return;
+            results.push({ name: (el.tags && el.tags.name) || "(名称不明)", catId: catId, distance: dist });
+          });
+          results.sort(function(a, b){ return a.distance - b.distance; });
+          scanState = { status: "done", results: results, error: null, scannedAt: Date.now() };
+          render();
+        })
+        .catch(function(){ tryEndpoint(i + 1); });
+    }
+    tryEndpoint(0);
+  }
+
   function init(){
     initData();
     requestLocation();
@@ -376,11 +541,21 @@
     if (categories.length === 0){
       return '<div class="empty-note">カテゴリが登録されていません。設定から追加してください。</div>';
     }
-    return '<div class="chip-grid">' + categories.map(function(c){
-      var active = c.id === effId;
-      return '<button class="chip'+(active?' active':'')+'" data-action="select-category" data-id="'+c.id+'">' +
-        '<span class="g">'+esc(c.icon||"")+'</span>'+esc(c.name)+'</button>';
-    }).join("") + '</div>';
+    var groups = {};
+    var groupOrder = [];
+    categories.slice().sort(byOrder).forEach(function(c){
+      var g = c.group || c.name;
+      if (!groups[g]){ groups[g] = []; groupOrder.push(g); }
+      groups[g].push(c);
+    });
+    return groupOrder.map(function(g){
+      var chips = groups[g].map(function(c){
+        var active = c.id === effId;
+        return '<button class="chip'+(active?' active':'')+'" data-action="select-category" data-id="'+c.id+'">' +
+          '<span class="g">'+esc(c.icon||"")+'</span>'+esc(c.name)+'</button>';
+      }).join("");
+      return '<div class="chip-group-label">'+esc(g)+'</div><div class="chip-grid">'+chips+'</div>';
+    }).join("");
   }
 
   function rankListHtml(){
@@ -425,14 +600,52 @@
     );
   }
 
+  function scanResultsHtml(){
+    if (scanState.status === "idle") return "";
+    if (scanState.status === "loading"){
+      return '<div class="rank-list"><div class="empty-note">🔎 半径'+SCAN_RADIUS_M+'m以内をスキャンしています…</div></div>';
+    }
+    if (scanState.status === "error"){
+      return '<div class="rank-list"><div class="empty-note">'+esc(scanState.error)+'</div></div>';
+    }
+    if (scanState.results.length === 0){
+      return '<div class="rank-list"><div class="empty-note">半径'+SCAN_RADIUS_M+'m以内に対応する施設が見つかりませんでした(OpenStreetMapにデータが無い場所の可能性があります)</div></div>';
+    }
+    var byCat = {};
+    scanState.results.forEach(function(r){ (byCat[r.catId] = byCat[r.catId] || []).push(r); });
+    var catIds = Object.keys(byCat).sort(function(a, b){ return byCat[a][0].distance - byCat[b][0].distance; });
+    var html = catIds.map(function(catId){
+      var cat = categories.filter(function(c){ return c.id === catId; })[0];
+      if (!cat) return "";
+      var best = bestCardFor(catId);
+      var items = byCat[catId].map(function(r){
+        return (
+          '<div class="scan-item">' +
+            '<div class="scan-item-top"><span class="scan-item-name">'+esc(r.name)+'</span><span class="kind-badge num">'+fmtDist(r.distance)+'</span></div>' +
+            (best && best.rate > 0
+              ? '<div class="scan-item-best">💳 '+esc(best.card.name)+' <span class="num">'+best.rate.toFixed(1)+'%</span></div>'
+              : '<div class="rank-note">この分類のカードが登録されていません</div>') +
+          '</div>'
+        );
+      }).join("");
+      return '<div class="scan-group"><div class="scan-group-title">'+esc(cat.icon)+' '+esc(cat.name)+'</div>'+items+'</div>';
+    }).join("");
+    return '<div class="rank-list scan-results">'+html+'</div>';
+  }
+
   function homeHtml(){
     return (
       statusHtml() +
-      '<h2 class="section-title">🏷️ カテゴリを選ぶ</h2>' +
-      chipGridHtml() +
+      '<h2 class="section-title">📡 周辺スキャン(半径'+SCAN_RADIUS_M+'m)</h2>' +
+      '<button class="btn primary block" data-action="run-scan"'+(!position?" disabled":"")+'>🔍 '+(scanState.status==="idle"?"スキャンする":"再スキャン")+'</button>' +
+      scanResultsHtml() +
+      '<h2 class="section-title">🏷️ カテゴリを手動で選ぶ</h2>' +
+      '<details class="chip-details"><summary>タップして開く(スキャンで見つからない場合や、ネットショッピングなど)</summary>' +
+        chipGridHtml() +
+      '</details>' +
       '<h2 class="section-title">🏆 おすすめの支払い方法</h2>' +
       rankListHtml() +
-      '<div class="footnote">還元率は登録したカードのデータに基づく参考値です</div>'
+      '<div class="footnote">還元率は登録したカードのデータに基づく参考値です。施設情報はOpenStreetMapのデータを利用しています。</div>'
     );
   }
 
@@ -685,9 +898,19 @@
       var existing = categories.filter(function(c){ return c.name === item.name; })[0];
       if (existing){
         existing.icon = typeof item.icon === "string" ? item.icon : existing.icon;
+        if (typeof item.group === "string") existing.group = item.group;
+        if (typeof item.osmTag === "string") existing.osmTag = item.osmTag;
+        if (Array.isArray(item.brand)) existing.brand = item.brand;
+        if (typeof item.fallback === "boolean") existing.fallback = item.fallback;
         updated++;
       } else {
-        var cat = { id: uid("cat"), name: item.name, icon: item.icon || "🏷️", order: nextOrder(categories) };
+        var cat = {
+          id: uid("cat"), name: item.name, icon: item.icon || "🏷️", order: nextOrder(categories),
+          group: item.group || item.name,
+          osmTag: item.osmTag || null,
+          brand: Array.isArray(item.brand) ? item.brand : null,
+          fallback: !!item.fallback
+        };
         categories.push(cat);
         cards.forEach(function(c){ if (!c.rates) c.rates = {}; if (!(cat.id in c.rates)) c.rates[cat.id] = 0; });
         added++;
@@ -708,6 +931,7 @@
     if (action === "open-settings-cards"){ view = "settings"; settingsTab = "cards"; render(); return; }
     if (action === "settings-tab"){ settingsTab = el.getAttribute("data-tab"); expandedId = null; render(); return; }
     if (action === "refresh-location"){ requestLocation(); return; }
+    if (action === "run-scan"){ scanNearby(); return; }
     if (action === "select-category"){ manualCategoryId = id; render(); return; }
     if (action === "reset-auto"){ manualCategoryId = null; render(); return; }
     if (action === "install-app"){
