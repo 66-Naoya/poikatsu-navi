@@ -52,6 +52,22 @@
   var deferredInstallPrompt = null;
   var importOpen = false;
   var importResult = null;
+  var pendingDelete = null; // { kind: "card"|"place"|"category", id }
+
+  function deleteConfirmHtml(kind, id, label){
+    if (pendingDelete && pendingDelete.kind === kind && pendingDelete.id === id){
+      return (
+        '<div class="row-actions">' +
+          '<span style="color:#B23B3B;font-size:0.78rem;font-weight:600">本当に削除しますか？</span>' +
+          '<span style="display:flex;gap:6px">' +
+            '<button class="btn small" data-action="cancel-delete">キャンセル</button>' +
+            '<button class="btn danger small" data-action="confirm-delete" data-kind="'+kind+'" data-id="'+id+'">削除する</button>' +
+          '</span>' +
+        '</div>'
+      );
+    }
+    return '<div class="row-actions"><button class="btn danger small" data-action="ask-delete" data-kind="'+kind+'" data-id="'+id+'">🗑 '+label+'</button></div>';
+  }
 
   function uid(prefix){
     return prefix + "_" + Date.now().toString(36) + Math.random().toString(36).slice(2,8);
@@ -365,7 +381,7 @@
             '</select></div>' +
             '<div class="field"><label>メモ</label><input type="text" value="'+esc(c.note||"")+'" placeholder="例: 特約店のみ／エントリー必要 など" data-collection="cards" data-id="'+c.id+'" data-field="note"></div>' +
             '<div class="field"><label>カテゴリ別 還元率（%）</label><div class="rate-grid">'+rateRows+'</div></div>' +
-            '<div class="row-actions"><button class="btn danger small" data-action="delete-card" data-id="'+c.id+'">🗑 このカードを削除</button></div>' +
+            deleteConfirmHtml("card", c.id, "このカードを削除") +
           '</div>';
       }
       return (
@@ -408,7 +424,7 @@
             '<button class="btn small" data-action="use-current-location" data-id="'+p.id+'"'+(position?"":" disabled")+'>📍 現在地を使用'+(position?"":"（位置情報未取得）")+'</button>' +
             '<div class="field"><label>判定半径（m）</label><input type="number" step="10" min="20" value="'+(p.radius!=null?p.radius:300)+'" data-collection="places" data-id="'+p.id+'" data-field="radius"></div>' +
             '<div class="field"><label>メモ</label><input type="text" value="'+esc(p.note||"")+'" data-collection="places" data-id="'+p.id+'" data-field="note"></div>' +
-            '<div class="row-actions"><button class="btn danger small" data-action="delete-place" data-id="'+p.id+'">🗑 この場所を削除</button></div>' +
+            deleteConfirmHtml("place", p.id, "この場所を削除") +
           '</div>';
       }
       var distTxt = "";
@@ -442,7 +458,7 @@
               '<div class="field" style="flex:0 0 64px"><label>絵文字</label><input type="text" value="'+esc(c.icon||"")+'" data-collection="categories" data-id="'+c.id+'" data-field="icon" maxlength="4"></div>' +
               '<div class="field"><label>カテゴリ名</label><input type="text" value="'+esc(c.name)+'" data-collection="categories" data-id="'+c.id+'" data-field="name"></div>' +
             '</div>' +
-            '<div class="row-actions"><button class="btn danger small" data-action="delete-category" data-id="'+c.id+'">🗑 削除</button></div>' +
+            deleteConfirmHtml("category", c.id, "削除") +
           '</div>' +
         '</div>'
       );
@@ -533,11 +549,15 @@
       cards.push(card); expandedId = "card:"+card.id; saveStore(); render();
       return;
     }
-    if (action === "delete-card"){
-      if (confirm("このカードを削除しますか？")){
-        cards = cards.filter(function(c){ return c.id!==id; });
-        saveStore(); render();
-      }
+    if (action === "ask-delete"){ pendingDelete = { kind: el.getAttribute("data-kind"), id: id }; render(); return; }
+    if (action === "cancel-delete"){ pendingDelete = null; render(); return; }
+    if (action === "confirm-delete"){
+      var delKind = el.getAttribute("data-kind");
+      if (delKind === "card") cards = cards.filter(function(c){ return c.id!==id; });
+      else if (delKind === "place") places = places.filter(function(p){ return p.id!==id; });
+      else if (delKind === "category") categories = categories.filter(function(c){ return c.id!==id; });
+      pendingDelete = null;
+      saveStore(); render();
       return;
     }
     if (action === "move-card-up" || action === "move-card-down"){
@@ -565,13 +585,6 @@
       places.push(place); expandedId = "place:"+place.id; saveStore(); render();
       return;
     }
-    if (action === "delete-place"){
-      if (confirm("この場所を削除しますか？")){
-        places = places.filter(function(p){ return p.id!==id; });
-        saveStore(); render();
-      }
-      return;
-    }
     if (action === "use-current-location"){
       if (!position) return;
       var p = findIn(places, id);
@@ -584,13 +597,6 @@
       categories.push(cat);
       cards.forEach(function(c){ if (!c.rates) c.rates={}; c.rates[cat.id] = 0; });
       saveStore(); render();
-      return;
-    }
-    if (action === "delete-category"){
-      if (confirm("このカテゴリを削除しますか？関連するカードの還元率設定や場所の紐付けは残ります。")){
-        categories = categories.filter(function(c){ return c.id!==id; });
-        saveStore(); render();
-      }
       return;
     }
   });
