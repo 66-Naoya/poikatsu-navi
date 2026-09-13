@@ -384,11 +384,17 @@
     return false;
   }
 
+  function bonusCatIds(b){
+    if (Array.isArray(b.catIds)) return b.catIds;
+    return b.catId ? [b.catId] : [];
+  }
+
   function todayBonusFor(card, catId){
     if (!card.dayBonuses || !card.dayBonuses.length) return null;
     var now = new Date();
     var matches = card.dayBonuses.filter(function(b){
-      if (b.catId && b.catId !== catId) return false;
+      var ids = bonusCatIds(b);
+      if (ids.length && ids.indexOf(catId) === -1) return false;
       return activeDayBonus(b, now);
     });
     if (!matches.length) return null;
@@ -410,7 +416,9 @@
     cards.forEach(function(c){
       (c.dayBonuses || []).forEach(function(b){
         if (activeDayBonus(b, now)){
-          items.push({ card: c, label: b.label, catLabel: b.catId ? catName(b.catId) : "全カテゴリ", rate: b.boostedRate });
+          var ids = bonusCatIds(b);
+          var catLabel = ids.length ? ids.map(catName).join("、") : "全カテゴリ";
+          items.push({ card: c, label: b.label, catLabel: catLabel, rate: b.boostedRate });
         }
       });
     });
@@ -741,15 +749,16 @@
   function dayBonusSectionHtml(card){
     var list = card.dayBonuses || [];
     var rows = list.map(function(b){
+      var ids = bonusCatIds(b);
+      var catLabel = ids.length ? ids.map(catName).join("、") : "全カテゴリ";
       return (
         '<div class="item-row">' +
           '<div class="item-head">' +
             '<span class="name">🔥 '+esc(b.label)+'</span>' +
-            '<span class="kind-badge">'+(b.catId ? esc(catName(b.catId)) : "全カテゴリ")+'</span>' +
             '<span class="kind-badge num">'+b.boostedRate.toFixed(1)+'%</span>' +
           '</div>' +
           '<div class="item-body" style="padding-top:0">' +
-            '<div class="rank-note">'+(DAY_MATCH_LABELS[b.matchType]||b.matchType)+': '+esc(dayBonusValuesLabel(b))+'</div>' +
+            '<div class="rank-note">対象: '+esc(catLabel)+' ／ '+(DAY_MATCH_LABELS[b.matchType]||b.matchType)+': '+esc(dayBonusValuesLabel(b))+'</div>' +
             '<div class="row-actions"><span></span><button class="btn danger small" data-action="delete-day-bonus" data-id="'+card.id+'" data-bonus-id="'+b.id+'">🗑 削除</button></div>' +
           '</div>' +
         '</div>'
@@ -761,20 +770,20 @@
         (rows ? '<div class="list-panel" style="margin-bottom:8px">'+rows+'</div>' : '') +
         '<div class="list-panel"><div class="item-body">' +
           '<div class="field"><label>ラベル(例: 楽天市場 0と5のつく日)</label><input type="text" id="bonus-label-'+card.id+'" placeholder="例: 0と5のつく日"></div>' +
-          '<div class="latlng-row">' +
-            '<div class="field"><label>対象カテゴリ</label><select id="bonus-cat-'+card.id+'"><option value="">全カテゴリ</option>' +
+          '<div class="field"><label>対象カテゴリ(複数選択可・Ctrl/Cmdキーで追加選択、未選択なら全カテゴリ)</label>' +
+            '<select id="bonus-cat-'+card.id+'" multiple size="6">' +
               categories.slice().sort(byOrder).map(function(cat){ return '<option value="'+cat.id+'">'+esc(cat.icon)+' '+esc(cat.name)+'</option>'; }).join("") +
-            '</select></div>' +
-            '<div class="field"><label>その日の還元率(%)</label><input type="number" step="0.1" min="0" id="bonus-rate-'+card.id+'" placeholder="例: 4"></div>' +
+            '</select>' +
           '</div>' +
           '<div class="latlng-row">' +
+            '<div class="field"><label>その日の還元率(%)</label><input type="number" step="0.1" min="0" id="bonus-rate-'+card.id+'" placeholder="例: 4"></div>' +
             '<div class="field"><label>判定方法</label><select id="bonus-type-'+card.id+'">' +
               '<option value="digit">日にちの下一桁(例:0,5)</option>' +
               '<option value="weekday">曜日(0=日〜6=土)</option>' +
               '<option value="dates">特定の日にち(例:1,15)</option>' +
             '</select></div>' +
-            '<div class="field"><label>値(カンマ区切り)</label><input type="text" id="bonus-values-'+card.id+'" placeholder="例: 0,5"></div>' +
           '</div>' +
+          '<div class="field"><label>値(カンマ区切り)</label><input type="text" id="bonus-values-'+card.id+'" placeholder="例: 0,5"></div>' +
           '<div class="row-actions"><span></span><button class="btn small" data-action="add-day-bonus" data-id="'+card.id+'">＋ 追加</button></div>' +
         '</div></div>' +
       '</div>'
@@ -974,10 +983,11 @@
         else skippedRates.push(catName);
       });
       var dayBonuses = Array.isArray(item.dayBonuses) ? item.dayBonuses.map(function(b){
+        var names = Array.isArray(b.categories) ? b.categories : (b.category ? [b.category] : []);
         return {
           id: uid("bonus"), label: b.label || "", boostedRate: typeof b.boostedRate === "number" ? b.boostedRate : 0,
           matchType: b.matchType || "digit", values: Array.isArray(b.values) ? b.values : [],
-          catId: b.category ? (nameToId[b.category] || null) : null
+          catIds: names.map(function(n){ return nameToId[n]; }).filter(Boolean)
         };
       }) : null;
 
@@ -1097,8 +1107,9 @@
         alert("ラベル・還元率・値をすべて入力してください");
         return;
       }
+      var catIds = catEl ? Array.prototype.map.call(catEl.selectedOptions, function(o){ return o.value; }) : [];
       if (!card.dayBonuses) card.dayBonuses = [];
-      card.dayBonuses.push({ id: uid("bonus"), label: label, catId: catEl && catEl.value ? catEl.value : null, boostedRate: rate, matchType: typeEl ? typeEl.value : "digit", values: values });
+      card.dayBonuses.push({ id: uid("bonus"), label: label, catIds: catIds, boostedRate: rate, matchType: typeEl ? typeEl.value : "digit", values: values });
       saveStore(); render();
       return;
     }
